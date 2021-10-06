@@ -1,0 +1,104 @@
+﻿@model Preference.Models.VueListViewModel
+
+@{
+    ViewData["Title"] = "Vue list";
+}
+
+<div id="app">
+    <div class="text-center">
+        <h1 class="display-4">Vue list</h1>
+        <hr />
+        <div v-if="issues.length > 0">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>
+                            Title
+                        </th>
+                        <th>
+                            Severity
+                        </th>
+                        <th>
+                            Status
+                        </th>
+                        <th>
+                            Asignee
+                        </th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="issue in issues">
+                        <td>
+                            <input type="text" v-model="issue.title" v-on:change="autoSave(issue)" />
+                        </td>
+                        <td>
+                            <v-select v-model="issue.severity" v-on:input="autoSave(issue)" :options="severities" label="description"></v-select>
+                        </td>
+                        <td>
+                            <v-select v-model="issue.status" v-on:input="autoSave(issue)" :options="statuses" label="description"></v-select>
+                        </td>
+                        <td>
+                            <v-select v-model="issue.asignee" v-on:input="autoSave(issue)" :options="users" label="name" :reduce="name => name.id"></v-select>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@section scripts{
+    <script>
+        /*External component*/
+        Vue.component('v-select', VueSelect.VueSelect);
+
+        let app = new Vue({
+            el: '#app',
+            data: {
+                issues: @Html.Raw(Json.Serialize(Model.Issues)),
+                severities: @Html.Raw(Json.Serialize(Model.Severities)),/*Combo data*/
+                statuses: @Html.Raw(Json.Serialize(Model.Statuses)),/*Combo data*/
+                users: [],/*Combo data*/
+                connection: null,
+            },
+            created() {
+                /*Get users*/
+                fetch('https://jsonplaceholder.typicode.com/users')
+                    .then(response => response.json())
+                    .then(json => this.users = json);
+
+                /*Init SignalR*/
+                this.connection = new signalR.HubConnectionBuilder().withUrl("/issueHub").build();
+
+                this.connection.on("ReceiveIssue", function (issue) {
+                    let foundIndex = app.issues.findIndex(x => x.id == issue.id);
+                    Vue.set(app.issues, foundIndex, issue);
+                });
+
+                this.connection.start().catch(function (err) {
+                    return console.error(err.toString());
+                });
+            },
+            methods: {
+                /*TODO:Add event listener,more maintainable and reusable code (vs attributes)*/
+                autoSave: function (issue) {
+                    /*TODO:Optimize to save by property not by record*/
+                    fetch(`../Issues/AutoSave?Id=${issue.id}&Title=${issue.title}&SeverityId=${issue.severity.id}&StatusId=${issue.status.id}&Asignee=${issue.asignee}`,
+                        {method: 'POST'})
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data) {
+                                /*TODO: Invoke in the sever part, like entity(Issue) event(onChange)*/
+                                this.connection.invoke("SendIssue", issue).catch(function (err) {
+                                    return console.error(err.toString());
+                                });
+                            } else {
+                                alert('Ops... Could you try again?');
+                            }
+                        });
+                }
+            }
+        })
+    </script>
+}
